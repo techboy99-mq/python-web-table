@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MQ Install Summary Charts</title>
+  <link rel="stylesheet" href="css/jquery.dataTables.min.css" />
+  <style>
+    body { font-family: Arial, sans-serif; padding: 2rem; }
+    canvas { max-width: 500px; margin: 2rem 0; }
+    #charts { display: flex; flex-wrap: wrap; gap: 3rem; }
+  </style>
+</head>
+<body>
+  <h2>MQ Install Summary Charts</h2>
+  <a href="index.html">⬅ Back to Table</a>
+  <div id="charts">
+    <canvas id="statusChart"></canvas>
+    <canvas id="versionChart"></canvas>
+  </div>
+
+  <!-- JS Dependencies -->
+  <script src="js/jquery.min.js"></script>
+  <script src="js/papaparse.min.js"></script>
+  <script src="js/chart.4.4.1.min.js"></script>
+
+  <script>
+    function renderCharts(data) {
+      const statusCounts = { success: 0, failed: 0 };
+      const versionCounts = {};
+
+      data.forEach((row) => {
+        const status = row[4]?.toLowerCase();
+        const version = row[1];
+        if (status) statusCounts[status] = (statusCounts[status] || 0) + 1;
+        if (version) versionCounts[version] = (versionCounts[version] || 0) + 1;
+      });
+
+      new Chart(document.getElementById("statusChart"), {
+        type: "pie",
+        data: {
+          labels: ["Success", "Failed"],
+          datasets: [{
+            data: [statusCounts.success, statusCounts.failed],
+            backgroundColor: ["#4caf50", "#f44336"]
+          }]
+        },
+        options: { plugins: { title: { display: true, text: "Install Status Summary" } } }
+      });
+
+      new Chart(document.getElementById("versionChart"), {
+        type: "bar",
+        data: {
+          labels: Object.keys(versionCounts),
+          datasets: [{
+            label: "Installs per MQ Version",
+            data: Object.values(versionCounts),
+            backgroundColor: "#2196f3"
+          }]
+        },
+        options: {
+          plugins: { title: { display: true, text: "MQ Version Summary" } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+
+    function loadCSVAndRenderCharts() {
+      const csvUrl = `data.csv?t=${Date.now()}`;
+      Papa.parse(csvUrl, {
+        download: true,
+        header: false,
+        skipEmptyLines: true,
+        complete: (results) => renderCharts(results.data)
+      });
+    }
+
+    window.onload = loadCSVAndRenderCharts;
+  </script>
+</body>
+</html>
