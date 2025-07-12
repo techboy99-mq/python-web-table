@@ -1,3 +1,3 @@
+Start WebServer with the following command:
 
-cd csv_viewer
 python3 -m http.server 8000
