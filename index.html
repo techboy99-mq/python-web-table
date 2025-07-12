@@ -4,30 +4,24 @@
   <meta charset="UTF-8">
   <title>MQ Install Log Viewer</title>
   <link rel="stylesheet" href="css/jquery.dataTables.min.css">
+  <link rel="stylesheet" href="css/buttons.dataTables.min.css">
+  <link rel="stylesheet" href="css/rowGroup.dataTables.min.css">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 2rem;
-    }
-    button {
-      margin-bottom: 1rem;
-      padding: 0.5rem 1rem;
-      font-size: 1rem;
-    }
-    canvas {
-      max-width: 600px;
-      margin: 2rem 0;
-    }
-    #charts {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 3rem;
-    }
+    body { font-family: Arial, sans-serif; padding: 2rem; }
+    button { margin-right: 1rem; padding: 0.5rem 1rem; font-size: 1rem; }
+    canvas { max-width: 600px; margin: 2rem 0; }
+    #charts { display: flex; flex-wrap: wrap; gap: 3rem; }
+    #dateFilter { margin-bottom: 1rem; }
   </style>
 </head>
 <body>
   <h2>MQ Install Log Viewer</h2>
-  <button onclick="loadTable()">🔄 Refresh Table</button>
+  <div>
+    <button onclick="loadTable()">🔄 Refresh Table</button>
+    <label id="dateFilter">
+      Date from <input type="date" id="minDate"> to <input type="date" id="maxDate">
+    </label>
+  </div>
 
   <div id="charts">
     <canvas id="statusChart"></canvas>
@@ -37,45 +31,49 @@
   <table id="csv-table" class="display" style="width:100%">
     <thead>
       <tr>
-        <th>Hostname</th>
-        <th>MQ Version</th>
-        <th>MQ Install Type</th>
-        <th>Date/Time</th>
-        <th>Install Status</th>
-        <th>Conn Test Status</th>
+        <th>Hostname</th><th>MQ Version</th><th>MQ Install Type</th>
+        <th>Date/Time</th><th>Install Status</th><th>Conn Test Status</th>
       </tr>
     </thead>
     <tfoot>
       <tr>
-        <th>Hostname</th>
-        <th>MQ Version</th>
-        <th>MQ Install Type</th>
-        <th>Date/Time</th>
-        <th>Install Status</th>
-        <th>Conn Test Status</th>
+        <th>Hostname</th><th>MQ Version</th><th>MQ Install Type</th>
+        <th>Date/Time</th><th>Install Status</th><th>Conn Test Status</th>
       </tr>
     </tfoot>
     <tbody></tbody>
   </table>
 
-  <!-- JavaScript libraries -->
+  <!-- JS libraries -->
   <script src="js/jquery.min.js"></script>
   <script src="js/jquery.dataTables.min.js"></script>
+  <script src="js/dataTables.buttons.min.js"></script>
+  <script src="js/buttons.html5.min.js"></script>
+  <script src="js/dataTables.rowGroup.min.js"></script>
   <script src="js/papaparse.min.js"></script>
   <script src="js/chart.4.4.1.min.js"></script>
 
   <script>
+    // Date range filtering
+    $.fn.dataTable.ext.search.push(function(settings, data) {
+      const min = $('#minDate').val();
+      const max = $('#maxDate').val();
+      const dateTime = data[3]; // Date/Time column
+      if (!min && !max) return true;
+      const d = new Date(dateTime.replace(' ', 'T'));
+      if ((min && d < new Date(min)) || (max && d > new Date(max))) return false;
+      return true;
+    });
+
+    // Initialize reload on date change
+    $('#minDate, #maxDate').on('change', () => loadTable());
+
     function loadTable() {
       const csvUrl = `data.csv?t=${Date.now()}`;
-
       Papa.parse(csvUrl, {
-        download: true,
-        header: false, // CSV has no header row
-        skipEmptyLines: true,
-        complete: function(results) {
+        download: true, header: false, skipEmptyLines: true,
+        complete: results => {
           const data = results.data;
-
-          // Destroy and recreate DataTable
           if ($.fn.dataTable.isDataTable('#csv-table')) {
             $('#csv-table').DataTable().clear().destroy();
           }
@@ -90,28 +88,36 @@
           ];
 
           const table = $('#csv-table').DataTable({
-            data: data,
-            columns: columns,
+            data, columns,
+            dom: 'Bfrtip',
+            buttons: [
+              { extend: 'csvHtml5', text: 'Export CSV' },
+              { extend: 'excelHtml5', text: 'Export Excel' }
+            ],
+            rowGroup: {
+              dataSrc: 2  // group by Install Type
+            },
             pageLength: 10,
-            initComplete: function () {
-              this.api().columns().every(function () {
-                const column = this;
-                const select = $('<select><option value="">All</option></select>')
-                  .appendTo($(column.footer()).empty())
-                  .on('change', function () {
-                    const val = $.fn.dataTable.util.escapeRegex($(this).val());
-                    column.search(val ? '^' + val + '$' : '', true, false).draw();
-                  });
-
-                column.data().unique().sort().each(function (d) {
-                  if (d) select.append('<option value="' + d + '">' + d + '</option>');
-                });
-              });
-            }
+            initComplete: setupFilters
           });
 
+          // Draw charts and apply date filter
+          table.draw();
           renderCharts(data);
         }
+      });
+    }
+
+    function setupFilters() {
+      this.api().columns().every(function() {
+        const colIdx = this.index();
+        const select = $('<select><option value="">All</option></select>')
+          .appendTo($(this.footer()).empty())
+          .on('change', () => loadTable());
+
+        this.data().unique().sort().each(d => {
+          if (d) select.append(`<option value="${d}">${d}</option>`);
+        });
       });
     }
 
@@ -119,65 +125,27 @@
       if (window.statusChart) window.statusChart.destroy();
       if (window.versionChart) window.versionChart.destroy();
 
-      const statusCounts = { success: 0, failed: 0 };
-      const versionCounts = {};
-
-      data.forEach(row => {
-        const status = row[4]?.toLowerCase();
-        if (statusCounts[status] !== undefined) statusCounts[status]++;
-
-        const version = row[1];
-        if (version) versionCounts[version] = (versionCounts[version] || 0) + 1;
+      const statusCounts = { success:0, failed:0 }, versionCounts = {};
+      data.forEach(r => {
+        const s = r[4]?.toLowerCase();
+        statusCounts[s] = (statusCounts[s]||0)+1;
+        const v = r[1];
+        versionCounts[v] = (versionCounts[v]||0)+1;
       });
 
-      const ctx1 = document.getElementById('statusChart');
-      const ctx2 = document.getElementById('versionChart');
-
-      window.statusChart = new Chart(ctx1, {
+      window.statusChart = new Chart($('#statusChart'), {
         type: 'pie',
         data: {
-          labels: ['Success', 'Failed'],
-          datasets: [{
-            data: [statusCounts.success, statusCounts.failed],
-            backgroundColor: ['#4caf50', '#f44336']
-          }]
+          labels: ['Success','Failed'],
+          datasets: [{ data: [statusCounts.success,statusCounts.failed], backgroundColor: ['#4caf50','#f44336'] }]
         },
-        options: {
-          plugins: {
-            title: {
-              display: true,
-              text: 'Install Status Summary'
-            }
-          }
-        }
+        options: { plugins: { title: { display: true, text: 'Install Status Summary' }}}
       });
 
-      window.versionChart = new Chart(ctx2, {
+      window.versionChart = new Chart($('#versionChart'), {
         type: 'bar',
-        data: {
-          labels: Object.keys(versionCounts),
-          datasets: [{
-            label: 'Install Count',
-            data: Object.values(versionCounts),
-            backgroundColor: '#2196f3'
-          }]
-        },
-        options: {
-          plugins: {
-            title: {
-              display: true,
-              text: 'Installs per MQ Version'
-            }
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              ticks: {
-                precision: 0
-              }
-            }
-          }
-        }
+        data: { labels:Object.keys(versionCounts), datasets:[{label:'Install Count',data:Object.values(versionCounts),backgroundColor:'#2196f3'}]},
+        options: { plugins:{ title:{ display:true, text:'Installs per MQ Version'}}, scales:{ y:{ beginAtZero:true }}}
       });
     }
 
