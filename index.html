@@ -2,41 +2,186 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>CSV Table Viewer (Air-Gapped)</title>
+  <title>MQ Install Log Viewer</title>
   <link rel="stylesheet" href="css/jquery.dataTables.min.css">
   <style>
-    body { font-family: Arial, sans-serif; padding: 2rem; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 2rem;
+    }
+    button {
+      margin-bottom: 1rem;
+      padding: 0.5rem 1rem;
+      font-size: 1rem;
+    }
+    canvas {
+      max-width: 600px;
+      margin: 2rem 0;
+    }
+    #charts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3rem;
+    }
   </style>
 </head>
 <body>
   <h2>MQ Install Log Viewer</h2>
+  <button onclick="loadTable()">🔄 Refresh Table</button>
+
+  <div id="charts">
+    <canvas id="statusChart"></canvas>
+    <canvas id="versionChart"></canvas>
+  </div>
+
   <table id="csv-table" class="display" style="width:100%">
-    <thead></thead>
+    <thead>
+      <tr>
+        <th>Hostname</th>
+        <th>MQ Version</th>
+        <th>MQ Install Type</th>
+        <th>Date/Time</th>
+        <th>Install Status</th>
+        <th>Conn Test Status</th>
+      </tr>
+    </thead>
+    <tfoot>
+      <tr>
+        <th>Hostname</th>
+        <th>MQ Version</th>
+        <th>MQ Install Type</th>
+        <th>Date/Time</th>
+        <th>Install Status</th>
+        <th>Conn Test Status</th>
+      </tr>
+    </tfoot>
     <tbody></tbody>
   </table>
 
-  <!-- Local Libraries -->
+  <!-- JavaScript libraries -->
   <script src="js/jquery.min.js"></script>
   <script src="js/jquery.dataTables.min.js"></script>
   <script src="js/papaparse.min.js"></script>
+  <script src="js/chart.4.4.1.min.js"></script>
 
   <script>
-    // Parse and display CSV
-    Papa.parse("data.csv", {
-      download: true,
-      header: true,
-      complete: function(results) {
-        const data = results.data;
-        if (!data.length) return;
+    function loadTable() {
+      const csvUrl = `data.csv?t=${Date.now()}`;
 
-        const columns = Object.keys(data[0]).map(key => ({ title: key, data: key }));
-        $('#csv-table').DataTable({
-          data: data,
-          columns: columns,
-          pageLength: 10
-        });
-      }
-    });
+      Papa.parse(csvUrl, {
+        download: true,
+        header: false, // CSV has no header row
+        skipEmptyLines: true,
+        complete: function(results) {
+          const data = results.data;
+
+          // Destroy and recreate DataTable
+          if ($.fn.dataTable.isDataTable('#csv-table')) {
+            $('#csv-table').DataTable().clear().destroy();
+          }
+
+          const columns = [
+            { title: "Hostname", data: 0 },
+            { title: "MQ Version", data: 1 },
+            { title: "MQ Install Type", data: 2 },
+            { title: "Date/Time", data: 3 },
+            { title: "Install Status", data: 4 },
+            { title: "Conn Test Status", data: 5 }
+          ];
+
+          const table = $('#csv-table').DataTable({
+            data: data,
+            columns: columns,
+            pageLength: 10,
+            initComplete: function () {
+              this.api().columns().every(function () {
+                const column = this;
+                const select = $('<select><option value="">All</option></select>')
+                  .appendTo($(column.footer()).empty())
+                  .on('change', function () {
+                    const val = $.fn.dataTable.util.escapeRegex($(this).val());
+                    column.search(val ? '^' + val + '$' : '', true, false).draw();
+                  });
+
+                column.data().unique().sort().each(function (d) {
+                  if (d) select.append('<option value="' + d + '">' + d + '</option>');
+                });
+              });
+            }
+          });
+
+          renderCharts(data);
+        }
+      });
+    }
+
+    function renderCharts(data) {
+      if (window.statusChart) window.statusChart.destroy();
+      if (window.versionChart) window.versionChart.destroy();
+
+      const statusCounts = { success: 0, failed: 0 };
+      const versionCounts = {};
+
+      data.forEach(row => {
+        const status = row[4]?.toLowerCase();
+        if (statusCounts[status] !== undefined) statusCounts[status]++;
+
+        const version = row[1];
+        if (version) versionCounts[version] = (versionCounts[version] || 0) + 1;
+      });
+
+      const ctx1 = document.getElementById('statusChart');
+      const ctx2 = document.getElementById('versionChart');
+
+      window.statusChart = new Chart(ctx1, {
+        type: 'pie',
+        data: {
+          labels: ['Success', 'Failed'],
+          datasets: [{
+            data: [statusCounts.success, statusCounts.failed],
+            backgroundColor: ['#4caf50', '#f44336']
+          }]
+        },
+        options: {
+          plugins: {
+            title: {
+              display: true,
+              text: 'Install Status Summary'
+            }
+          }
+        }
+      });
+
+      window.versionChart = new Chart(ctx2, {
+        type: 'bar',
+        data: {
+          labels: Object.keys(versionCounts),
+          datasets: [{
+            label: 'Install Count',
+            data: Object.values(versionCounts),
+            backgroundColor: '#2196f3'
+          }]
+        },
+        options: {
+          plugins: {
+            title: {
+              display: true,
+              text: 'Installs per MQ Version'
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                precision: 0
+              }
+            }
+          }
+        }
+      });
+    }
+
+    window.onload = loadTable;
   </script>
 </body>
 </html>
