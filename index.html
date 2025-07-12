@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CSV Table Viewer</title>
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+  <style>
+    body { font-family: Arial, sans-serif; padding: 2rem; }
+  </style>
+</head>
+<body>
+  <h2>MQ Install Log Viewer</h2>
+  <table id="csv-table" class="display" style="width:100%">
+    <thead></thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- Libraries -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <script>
+    // Load CSV file and render it as a DataTable
+    Papa.parse("data.csv", {
+      download: true,
+      header: true,
+      complete: function(results) {
+        const data = results.data;
+        if (!data.length) return;
+
+        const columns = Object.keys(data[0]).map(key => ({ title: key, data: key }));
+        $('#csv-table').DataTable({
+          data: data,
+          columns: columns,
+          pageLength: 10
+        });
+      }
+    });
+  </script>
+</body>
+</html>
