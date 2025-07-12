@@ -1,4 +1,5 @@
 Library	        Download URL
+
 jQuery	        https://code.jquery.com/jquery-3.6.0.min.js
 DataTables CSS	https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css
 DataTables JS	https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js
