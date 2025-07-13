@@ -13,8 +13,8 @@ if __name__ == "__main__":
 
     httpd.socket = ssl.wrap_socket(
         httpd.socket,
-        keyfile="key.pem",
-        certfile="cert.pem",
+        keyfile="./ssl/key.pem",
+        certfile="./ssl/cert.pem",
         server_side=True
     )
 
