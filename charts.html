@@ -6,129 +6,125 @@
   <link rel="stylesheet" href="css/jquery.dataTables.min.css" />
   <style>
     body { font-family: Arial, sans-serif; padding: 2rem; }
-    #filters { margin-bottom: 1rem; }
-    #pieChartContainer {
-      max-width: 350px;
-      max-height: 350px;
-      margin-bottom: 2rem;
-    }
-    #pieChart {
-      width: 100% !important;
-      height: 100% !important;
-    }
-    #barChartContainer {
-      max-width: 700px;
-      margin-bottom: 2rem;
-    }
-    canvas {
-      display: block;
-      max-width: 100%;
-    }
-    label {
-      margin-right: 1rem;
-    }
+    a.back-link { display: inline-block; margin-bottom: 1rem; font-size: 1.1rem; text-decoration: none; }
+    a.back-link:hover { text-decoration: underline; }
+    .chart-container { max-width: 600px; margin-bottom: 3rem; }
+    .filter-group { margin-bottom: 1rem; }
+    label { margin-right: 1rem; }
+    select, input[type="date"] { padding: 0.3rem 0.5rem; }
   </style>
 </head>
 <body>
-  <h2>MQ Install Charts</h2>
-  <div id="filters">
-    <label>Date from <input type="date" id="minDate" /></label>
-    <label>to <input type="date" id="maxDate" /></label>
+  <a href="index.html" class="back-link">← Back to Table</a>
+
+  <h2>MQ Install Success vs Failures</h2>
+  <div class="chart-container">
+    <canvas id="pieChart" width="400" height="400"></canvas>
+  </div>
+
+  <h2>Install Status by Type (Filtered)</h2>
+  
+  <div class="filter-group">
+    <label for="filterStartDate">Start Date:</label>
+    <input type="date" id="filterStartDate" />
+    <label for="filterEndDate">End Date:</label>
+    <input type="date" id="filterEndDate" />
+    
+    <label for="filterInstallStatus">Install Status:</label>
+    <select id="filterInstallStatus">
+      <option value="">All</option>
+      <option value="success">Success</option>
+      <option value="failed">Failed</option>
+    </select>
+
+    <label for="filterInstallType">Install Type:</label>
+    <select id="filterInstallType">
+      <option value="">All</option>
+      <option value="client">Client</option>
+      <option value="server">Server</option>
+    </select>
+
     <button id="applyFilters">Apply Filters</button>
   </div>
 
-  <div id="pieChartContainer">
-    <canvas id="pieChart"></canvas>
+  <div class="chart-container">
+    <canvas id="barChart" width="600" height="400"></canvas>
   </div>
 
-  <div id="barChartContainer">
-    <canvas id="barChart"></canvas>
-  </div>
-
-  <!-- JS dependencies -->
   <script src="js/jquery.min.js"></script>
-  <script src="js/papaparse.min.js"></script>
-  <script src="js/chart.umd.min.js"></script>
+  <script src="js/chart.min.js"></script>
   <script src="js/chartjs-plugin-datalabels.min.js"></script>
+  <script src="js/papaparse.min.js"></script>
 
   <script>
     let rawData = [];
+    let pieChart, barChart;
 
-    // Parse CSV and store data
-    function loadData(callback) {
+    // Load and parse CSV data
+    function loadData() {
       Papa.parse('data.csv', {
         download: true,
         header: false,
         skipEmptyLines: true,
         complete: function(results) {
-          rawData = results.data.map(row => ({
-            hostname: row[0],
-            mq_version: row[1],
-            mq_install_type: row[2],
-            date: row[3],       // YYYY-MM-DD
-            time: row[4],       // HH:MM
-            install_status: row[5].toLowerCase(),
-            conn_test_status: row[6].toLowerCase()
-          }));
-          callback();
+          rawData = results.data;
+          drawPieChart();
+          drawBarChart();
         }
       });
     }
 
-    // Filter data by date range
-    function filterByDate(data, minDate, maxDate) {
-      if (!minDate && !maxDate) return data;
-      return data.filter(d => {
-        if (!d.date) return false;
-        const currentDate = new Date(d.date);
-        if (minDate && currentDate < new Date(minDate)) return false;
-        if (maxDate && currentDate > new Date(maxDate)) return false;
-        return true;
-      });
+    // Utility: Parse date string 'YYYY-MM-DD' into Date object
+    function parseDate(str) {
+      if (!str) return null;
+      const parts = str.split('-');
+      return new Date(parts[0], parts[1] - 1, parts[2]);
     }
 
-    let pieChartInstance, barChartInstance;
-
-    function createPieChart(data) {
+    // Draw Pie Chart: Success vs Fail count with count & %
+    function drawPieChart() {
       const counts = { success: 0, failed: 0 };
-      data.forEach(row => {
-        if (row.install_status === 'success') counts.success++;
-        else if (row.install_status === 'failed') counts.failed++;
+      rawData.forEach(row => {
+        const status = row[5].toLowerCase();
+        if (status === 'success' || status === 'failed') counts[status]++;
       });
-      const total = counts.success + counts.failed;
 
-      const pieData = {
-        labels: [
-          `Success (${counts.success})`,
-          `Failed (${counts.failed})`
-        ],
-        datasets: [{
-          data: [counts.success, counts.failed],
-          backgroundColor: ['#28a745', '#dc3545']
-        }]
-      };
+      const total = counts.success + counts.failed;
+      const data = [counts.success, counts.failed];
 
       const ctx = document.getElementById('pieChart').getContext('2d');
-      if (pieChartInstance) pieChartInstance.destroy();
-      pieChartInstance = new Chart(ctx, {
+      if (pieChart) pieChart.destroy();
+
+      pieChart = new Chart(ctx, {
         type: 'pie',
-        data: pieData,
+        data: {
+          labels: ['Success', 'Failed'],
+          datasets: [{
+            data,
+            backgroundColor: ['#4caf50', '#f44336'],
+          }]
+        },
         options: {
-          responsive: true,
-          maintainAspectRatio: false,
           plugins: {
+            datalabels: {
+              formatter: (value, ctx) => {
+                const label = ctx.chart.data.labels[ctx.dataIndex];
+                const percent = (value / total * 100).toFixed(1);
+                return `${label}\n${value} (${percent}%)`;
+              },
+              color: '#fff',
+              font: { weight: 'bold', size: 14 }
+            },
             legend: {
               position: 'bottom'
             },
-            datalabels: {
-              formatter: (value, ctx) => {
-                let percent = (value / total * 100).toFixed(1);
-                return `${value} (${percent}%)`;
-              },
-              color: '#fff',
-              font: {
-                weight: 'bold',
-                size: 14
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  const val = ctx.raw;
+                  const pct = (val / total * 100).toFixed(2);
+                  return `${ctx.label}: ${val} (${pct}%)`;
+                }
               }
             }
           }
@@ -137,69 +133,85 @@
       });
     }
 
-    function createBarChart(data) {
-      // Count success/fail by install type
-      const stats = {};
-      data.forEach(row => {
-        if (!row.mq_install_type || !row.install_status) return;
-        const type = row.mq_install_type;
-        const status = row.install_status;
-        if (!stats[type]) stats[type] = { success: 0, failed: 0 };
-        if (status === 'success') stats[type].success++;
-        else if (status === 'failed') stats[type].failed++;
+    // Draw Bar Chart: Install Status by Install Type with filters
+    function drawBarChart() {
+      const startDate = parseDate(document.getElementById('filterStartDate').value);
+      const endDate = parseDate(document.getElementById('filterEndDate').value);
+      const installStatusFilter = document.getElementById('filterInstallStatus').value.toLowerCase();
+      const installTypeFilter = document.getElementById('filterInstallType').value.toLowerCase();
+
+      // Count structure: {client: {success: x, failed: y}, server: {...}}
+      const counts = { client: { success: 0, failed: 0 }, server: { success: 0, failed: 0 } };
+
+      rawData.forEach(row => {
+        const dateStr = row[3];
+        const dateObj = parseDate(dateStr);
+        if (!dateObj) return; // skip invalid date
+
+        // Date range filter
+        if (startDate && dateObj < startDate) return;
+        if (endDate && dateObj > endDate) return;
+
+        const status = row[5].toLowerCase();
+        const type = row[2].toLowerCase();
+
+        // Install status filter
+        if (installStatusFilter && status !== installStatusFilter) return;
+
+        // Install type filter
+        if (installTypeFilter && type !== installTypeFilter) return;
+
+        if (counts[type] && counts[type][status] !== undefined) {
+          counts[type][status]++;
+        }
       });
 
-      const labels = Object.keys(stats);
-      const successData = labels.map(l => stats[l].success);
-      const failedData = labels.map(l => stats[l].failed);
-
       const ctx = document.getElementById('barChart').getContext('2d');
-      if (barChartInstance) barChartInstance.destroy();
+      if (barChart) barChart.destroy();
 
-      barChartInstance = new Chart(ctx, {
+      barChart = new Chart(ctx, {
         type: 'bar',
         data: {
-          labels: labels,
+          labels: ['Client', 'Server'],
           datasets: [
             {
               label: 'Success',
-              backgroundColor: '#28a745',
-              data: successData
+              backgroundColor: '#4caf50',
+              data: [counts.client.success, counts.server.success]
             },
             {
               label: 'Failed',
-              backgroundColor: '#dc3545',
-              data: failedData
+              backgroundColor: '#f44336',
+              data: [counts.client.failed, counts.server.failed]
             }
           ]
         },
         options: {
           responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            y: { beginAtZero: true, precision: 0 }
-          },
           plugins: {
-            legend: {
-              position: 'bottom'
+            legend: { position: 'top' },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              precision: 0,
+              title: { display: true, text: 'Count' }
+            },
+            x: {
+              title: { display: true, text: 'Install Type' }
             }
           }
         }
       });
     }
 
-    function applyFiltersAndDraw() {
-      const minDate = document.getElementById('minDate').value;
-      const maxDate = document.getElementById('maxDate').value;
-      const filteredData = filterByDate(rawData, minDate, maxDate);
-      createPieChart(filteredData);
-      createBarChart(filteredData);
-    }
+    document.getElementById('applyFilters').addEventListener('click', () => {
+      drawBarChart();
+    });
 
-    document.getElementById('applyFilters').addEventListener('click', applyFiltersAndDraw);
-
-    // Initial load
-    loadData(applyFiltersAndDraw);
+    // Load data on page load
+    window.onload = loadData;
   </script>
 </body>
 </html>
