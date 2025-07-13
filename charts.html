@@ -8,7 +8,7 @@
     body {
       font-family: Arial, sans-serif;
       padding: 1rem 2rem;
-      max-width: 900px;
+      max-width: 1200px;
       margin: auto;
     }
     h2 {
@@ -26,9 +26,28 @@
       padding: 0.25rem;
       font-size: 1rem;
     }
+    .charts-wrapper {
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 2rem;
+      margin-top: 2rem;
+    }
     .chart-container {
-      max-width: 450px;
-      margin: 2rem auto;
+      width: 100%;
+      max-width: 500px;
+    }
+    .chart-container h3 {
+      text-align: center;
+      margin-bottom: 0.5rem;
+    }
+    canvas {
+      width: 100% !important;
+      height: auto !important;
+    }
+    .back-link {
+      text-align: center;
+      margin-top: 2rem;
     }
   </style>
 </head>
@@ -44,15 +63,19 @@
     </label>
   </div>
 
-  <div class="chart-container">
-    <canvas id="pieChart"></canvas>
+  <div class="charts-wrapper">
+    <div class="chart-container">
+      <h3>Total Install Status (Success vs Failed)</h3>
+      <canvas id="pieChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+      <h3>Install Status by Type</h3>
+      <canvas id="barChart"></canvas>
+    </div>
   </div>
 
-  <div class="chart-container">
-    <canvas id="barChart"></canvas>
-  </div>
-
-  <div style="text-align: center; margin-top: 2rem;">
+  <div class="back-link">
     <a href="index.html">⬅ Back to Table View</a>
   </div>
 
@@ -69,19 +92,14 @@
     let pieChart, barChart;
     let csvData = [];
 
-    // Parse date string "YYYY-MM-DD"
     function parseDate(dateStr) {
-      if (!dateStr) return null;
       const parts = dateStr.split('-');
-      if (parts.length !== 3) return null;
-      return new Date(dateStr);
+      return parts.length === 3 ? new Date(dateStr) : null;
     }
 
-    // Filter data by date range (date in 4th col)
     function filterDataByDate(data, minDate, maxDate) {
       return data.filter(row => {
-        const dateVal = row[3]; // Date column YYYY-MM-DD
-        if (!dateVal) return false;
+        const dateVal = row[3];
         const d = parseDate(dateVal);
         if (!d) return false;
         if (minDate && d < minDate) return false;
@@ -91,10 +109,7 @@
     }
 
     function aggregateData(data) {
-      // Totals for pie chart: success/fail counts
       let totalSuccess = 0, totalFail = 0;
-
-      // Bar chart counts: install_type => {success: x, fail: y}
       const installTypeCounts = {};
 
       data.forEach(row => {
@@ -139,20 +154,12 @@
           plugins: {
             datalabels: {
               color: '#fff',
-              formatter: (value, ctx) => {
-                let label = ctx.chart.data.labels[ctx.dataIndex];
-                return label;
-              },
-              font: { weight: 'bold', size: 14 }
+              formatter: (_, ctx) => ctx.chart.data.labels[ctx.dataIndex],
+              font: { weight: 'bold', size: 13 }
             },
             legend: {
               position: 'bottom',
               labels: { font: { size: 14 } }
-            },
-            title: {
-              display: true,
-              text: 'Total Install Status',
-              font: { size: 18, weight: 'bold' }
             }
           }
         },
@@ -189,17 +196,11 @@
           scales: {
             y: {
               beginAtZero: true,
-              precision: 0,
-              ticks: { stepSize: 1 }
+              ticks: { precision: 0, stepSize: 1 }
             }
           },
           plugins: {
-            legend: { position: 'bottom' },
-            title: {
-              display: true,
-              text: 'Install Status by Install Type',
-              font: { size: 18, weight: 'bold' }
-            }
+            legend: { position: 'bottom' }
           }
         }
       });
@@ -233,13 +234,10 @@
       });
     }
 
-    // Date filter change triggers chart refresh
     document.getElementById('minDate').addEventListener('change', refreshCharts);
     document.getElementById('maxDate').addEventListener('change', refreshCharts);
 
-    // Initial load
     loadCsvData();
-
   </script>
 </body>
 </html>
