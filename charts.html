@@ -5,182 +5,201 @@
   <title>MQ Install Charts</title>
   <link rel="stylesheet" href="css/jquery.dataTables.min.css" />
   <style>
-    body { font-family: Arial, sans-serif; padding: 2rem; max-width: 900px; margin: auto; }
-    h2 { margin-bottom: 0.5rem; }
-    #filters { margin-bottom: 1.5rem; }
-    label { margin-right: 1rem; }
-    canvas { margin-bottom: 3rem; }
+    body { font-family: Arial, sans-serif; padding: 2rem; }
+    #filters { margin-bottom: 1rem; }
+    #pieChartContainer {
+      max-width: 350px;
+      max-height: 350px;
+      margin-bottom: 2rem;
+    }
+    #pieChart {
+      width: 100% !important;
+      height: 100% !important;
+    }
+    #barChartContainer {
+      max-width: 700px;
+      margin-bottom: 2rem;
+    }
+    canvas {
+      display: block;
+      max-width: 100%;
+    }
+    label {
+      margin-right: 1rem;
+    }
   </style>
 </head>
 <body>
-  <h2>MQ Install Status Charts</h2>
-
+  <h2>MQ Install Charts</h2>
   <div id="filters">
-    <label>
-      Date from: <input type="date" id="startDate" />
-    </label>
-    <label>
-      Date to: <input type="date" id="endDate" />
-    </label>
-    <button id="applyFilter">Apply Filter</button>
-    <button onclick="location.href='index.html'">← Back to Table</button>
+    <label>Date from <input type="date" id="minDate" /></label>
+    <label>to <input type="date" id="maxDate" /></label>
+    <button id="applyFilters">Apply Filters</button>
   </div>
 
-  <canvas id="pieChart" width="400" height="300"></canvas>
-  <canvas id="barChart" width="700" height="300"></canvas>
+  <div id="pieChartContainer">
+    <canvas id="pieChart"></canvas>
+  </div>
 
+  <div id="barChartContainer">
+    <canvas id="barChart"></canvas>
+  </div>
+
+  <!-- JS dependencies -->
   <script src="js/jquery.min.js"></script>
   <script src="js/papaparse.min.js"></script>
   <script src="js/chart.min.js"></script>
+  <script src="js/chartjs-plugin-datalabels.min.js"></script>
 
   <script>
     let rawData = [];
 
-    // Parse CSV and initialize charts
-    function loadData() {
+    // Parse CSV and store data
+    function loadData(callback) {
       Papa.parse('data.csv', {
         download: true,
         header: false,
         skipEmptyLines: true,
-        complete: (results) => {
-          rawData = results.data;
-          updateCharts();
+        complete: function(results) {
+          rawData = results.data.map(row => ({
+            hostname: row[0],
+            mq_version: row[1],
+            mq_install_type: row[2],
+            date: row[3],       // YYYY-MM-DD
+            time: row[4],       // HH:MM
+            install_status: row[5].toLowerCase(),
+            conn_test_status: row[6].toLowerCase()
+          }));
+          callback();
         }
       });
     }
 
-    // Parse date from "YYYY-MM-DD" format in the CSV (column 3)
-    function parseDate(str) {
-      const parts = str.split('-');
-      if(parts.length !== 3) return null;
-      return new Date(str);
-    }
-
-    // Filter data by date range inputs
-    function filterByDate(data) {
-      const startDateVal = document.getElementById('startDate').value;
-      const endDateVal = document.getElementById('endDate').value;
-
-      if(!startDateVal && !endDateVal) return data;
-
-      const start = startDateVal ? new Date(startDateVal) : null;
-      const end = endDateVal ? new Date(endDateVal) : null;
-
-      return data.filter(row => {
-        const dateStr = row[3];
-        if (!dateStr) return false;
-        const date = parseDate(dateStr);
-        if (!date) return false;
-        if (start && date < start) return false;
-        if (end && date > end) return false;
+    // Filter data by date range
+    function filterByDate(data, minDate, maxDate) {
+      if (!minDate && !maxDate) return data;
+      return data.filter(d => {
+        if (!d.date) return false;
+        const currentDate = new Date(d.date);
+        if (minDate && currentDate < new Date(minDate)) return false;
+        if (maxDate && currentDate > new Date(maxDate)) return false;
         return true;
       });
     }
 
-    // Chart instances to update later
-    let pieChart, barChart;
+    let pieChartInstance, barChartInstance;
 
-    function updateCharts() {
-      const filteredData = filterByDate(rawData);
-
-      // Count success/fail totals for pie chart
-      const successFailCount = { success: 0, failed: 0 };
-      filteredData.forEach(row => {
-        const status = (row[5] || '').toLowerCase();
-        if (status === 'success') successFailCount.success++;
-        else if (status === 'failed') successFailCount.failed++;
+    function createPieChart(data) {
+      const counts = { success: 0, failed: 0 };
+      data.forEach(row => {
+        if (row.install_status === 'success') counts.success++;
+        else if (row.install_status === 'failed') counts.failed++;
       });
+      const total = counts.success + counts.failed;
 
-      // Prepare pie chart data
-      const pieLabels = ['Success', 'Failed'];
-      const pieData = [successFailCount.success, successFailCount.failed];
-      const pieTotal = pieData.reduce((a,b) => a+b, 0);
+      const pieData = {
+        labels: [
+          `Success (${counts.success})`,
+          `Failed (${counts.failed})`
+        ],
+        datasets: [{
+          data: [counts.success, counts.failed],
+          backgroundColor: ['#28a745', '#dc3545']
+        }]
+      };
 
-      // Destroy existing pie chart if exists
-      if (pieChart) pieChart.destroy();
-
-      const pieCtx = document.getElementById('pieChart').getContext('2d');
-      pieChart = new Chart(pieCtx, {
+      const ctx = document.getElementById('pieChart').getContext('2d');
+      if (pieChartInstance) pieChartInstance.destroy();
+      pieChartInstance = new Chart(ctx, {
         type: 'pie',
-        data: {
-          labels: pieLabels.map((label, i) => 
-            `${label}: ${pieData[i]} (${((pieData[i]/pieTotal)*100).toFixed(1)}%)`),
-          datasets: [{
-            data: pieData,
-            backgroundColor: ['#4CAF50', '#F44336'],
-          }]
-        },
+        data: pieData,
         options: {
           responsive: true,
+          maintainAspectRatio: false,
           plugins: {
-            legend: { position: 'bottom' },
-            tooltip: {
-              callbacks: {
-                label: ctx => `${ctx.label}`
+            legend: {
+              position: 'bottom'
+            },
+            datalabels: {
+              formatter: (value, ctx) => {
+                let percent = (value / total * 100).toFixed(1);
+                return `${value} (${percent}%)`;
+              },
+              color: '#fff',
+              font: {
+                weight: 'bold',
+                size: 14
               }
             }
           }
-        }
+        },
+        plugins: [ChartDataLabels]
+      });
+    }
+
+    function createBarChart(data) {
+      // Count success/fail by install type
+      const stats = {};
+      data.forEach(row => {
+        if (!row.mq_install_type || !row.install_status) return;
+        const type = row.mq_install_type;
+        const status = row.install_status;
+        if (!stats[type]) stats[type] = { success: 0, failed: 0 };
+        if (status === 'success') stats[type].success++;
+        else if (status === 'failed') stats[type].failed++;
       });
 
-      // Count success/fail by install type for bar chart
-      const installTypes = ['client', 'server'];
-      const barDataSuccess = [0, 0];
-      const barDataFailed = [0, 0];
+      const labels = Object.keys(stats);
+      const successData = labels.map(l => stats[l].success);
+      const failedData = labels.map(l => stats[l].failed);
 
-      filteredData.forEach(row => {
-        const type = (row[2] || '').toLowerCase();
-        const status = (row[5] || '').toLowerCase();
-        const idx = installTypes.indexOf(type);
-        if(idx >= 0) {
-          if(status === 'success') barDataSuccess[idx]++;
-          else if(status === 'failed') barDataFailed[idx]++;
-        }
-      });
+      const ctx = document.getElementById('barChart').getContext('2d');
+      if (barChartInstance) barChartInstance.destroy();
 
-      // Destroy existing bar chart if exists
-      if(barChart) barChart.destroy();
-
-      const barCtx = document.getElementById('barChart').getContext('2d');
-      barChart = new Chart(barCtx, {
+      barChartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
-          labels: installTypes.map(s => s.charAt(0).toUpperCase() + s.slice(1)),
+          labels: labels,
           datasets: [
             {
               label: 'Success',
-              backgroundColor: '#4CAF50',
-              data: barDataSuccess
+              backgroundColor: '#28a745',
+              data: successData
             },
             {
               label: 'Failed',
-              backgroundColor: '#F44336',
-              data: barDataFailed
+              backgroundColor: '#dc3545',
+              data: failedData
             }
           ]
         },
         options: {
           responsive: true,
+          maintainAspectRatio: false,
           scales: {
-            y: {
-              beginAtZero: true,
-              stepSize: 1,
-              title: { display: true, text: 'Count' }
-            },
-            x: {
-              title: { display: true, text: 'MQ Install Type' }
-            }
+            y: { beginAtZero: true, precision: 0 }
           },
           plugins: {
-            legend: { position: 'top' }
+            legend: {
+              position: 'bottom'
+            }
           }
         }
       });
     }
 
-    document.getElementById('applyFilter').addEventListener('click', updateCharts);
+    function applyFiltersAndDraw() {
+      const minDate = document.getElementById('minDate').value;
+      const maxDate = document.getElementById('maxDate').value;
+      const filteredData = filterByDate(rawData, minDate, maxDate);
+      createPieChart(filteredData);
+      createBarChart(filteredData);
+    }
 
-    window.onload = loadData;
+    document.getElementById('applyFilters').addEventListener('click', applyFiltersAndDraw);
+
+    // Initial load
+    loadData(applyFiltersAndDraw);
   </script>
 </body>
 </html>
