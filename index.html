@@ -3,33 +3,22 @@
 <head>
   <meta charset="UTF-8" />
   <title>MQ Install Log Viewer</title>
-  <!-- Local CSS files -->
   <link rel="stylesheet" href="css/jquery.dataTables.min.css" />
   <link rel="stylesheet" href="css/buttons.dataTables.min.css" />
   <link rel="stylesheet" href="css/rowGroup.dataTables.min.css" />
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 2rem;
-    }
-    button {
-      margin-right: 1rem;
-      padding: 0.5rem 1rem;
-      font-size: 1rem;
-    }
-    #dateFilter {
-      margin: 1rem 0;
-    }
-    #csv-table {
-      width: 100%;
-    }
+    body { font-family: Arial, sans-serif; padding: 2rem; }
+    button { margin-right: 1rem; padding: 0.5rem 1rem; font-size: 1rem; }
+    #dateFilter { margin: 1rem 0; display: inline-block; }
+    #csv-table { width: 100%; }
+    thead input { width: 100%; box-sizing: border-box; }
   </style>
 </head>
 <body>
   <h2>MQ Install Log Viewer</h2>
 
   <div>
-    <a href="charts.html" style="margin-bottom: 1rem; display: inline-block;">📊 View Charts</a><br /><br />
+    <a href="charts.html" style="margin-bottom: 1rem; display: inline-block;">📊 View Charts</a><br />
     <button onclick="loadTable()">🔄 Refresh Table</button>
     <label id="dateFilter">
       Date from <input type="date" id="minDate" /> to <input type="date" id="maxDate" />
@@ -42,42 +31,43 @@
         <th>Hostname</th>
         <th>MQ Version</th>
         <th>MQ Install Type</th>
-        <th>Date/Time</th>
+        <th>Date</th>
+        <th>Time</th>
         <th>Install Status</th>
         <th>Conn Test Status</th>
+      </tr>
+      <tr>
+        <th><input placeholder="Filter Hostname" /></th>
+        <th><input placeholder="Filter MQ Version" /></th>
+        <th><input placeholder="Filter Install Type" /></th>
+        <th></th>
+        <th></th>
+        <th><input placeholder="Filter Status" /></th>
+        <th><input placeholder="Filter Conn Status" /></th>
       </tr>
     </thead>
-    <tfoot>
-      <tr>
-        <th>Hostname</th>
-        <th>MQ Version</th>
-        <th>MQ Install Type</th>
-        <th>Date/Time</th>
-        <th>Install Status</th>
-        <th>Conn Test Status</th>
-      </tr>
-    </tfoot>
     <tbody></tbody>
   </table>
 
-  <!-- Local JS files -->
+  <!-- JS dependencies -->
   <script src="js/jquery.min.js"></script>
   <script src="js/jquery.dataTables.min.js"></script>
   <script src="js/dataTables.buttons.min.js"></script>
   <script src="js/buttons.html5.min.js"></script>
   <script src="js/jszip.min.js"></script>
-  <script src="js/rowGroup.dataTables.min.js"></script>
+  <script src="js/dataTables.rowGroup.min.js"></script>
   <script src="js/papaparse.min.js"></script>
 
   <script>
-    // Extend DataTables with date range filtering
-    $.fn.dataTable.ext.search.push(function (settings, data) {
+    // Date range filtering
+    $.fn.dataTable.ext.search.push((settings, data) => {
       const min = $('#minDate').val();
       const max = $('#maxDate').val();
-      const dateTime = data[3]; // Date/Time column
-      if (!min && !max) return true;
-      const d = new Date(dateTime.replace(' ', 'T'));
-      if ((min && d < new Date(min)) || (max && d > new Date(max))) return false;
+      const dateVal = data[3]; // Date column
+      if (!dateVal) return true;
+      const d = new Date(dateVal);
+      if (min && d < new Date(min)) return false;
+      if (max && d > new Date(max)) return false;
       return true;
     });
 
@@ -86,59 +76,54 @@
     });
 
     function loadTable() {
-      const csvUrl = `data.csv?t=${Date.now()}`; // bust cache
-      Papa.parse(csvUrl, {
+      const url = `data.csv?t=${Date.now()}`;
+      Papa.parse(url, {
         download: true,
         header: false,
         skipEmptyLines: true,
-        complete: (results) => {
-          const data = results.data;
-          if ($.fn.dataTable.isDataTable('#csv-table')) {
-            $('#csv-table').DataTable().clear().destroy();
-          }
+        complete: results => renderTable(results.data)
+      });
+    }
 
-          const table = $('#csv-table').DataTable({
-            data,
-            columns: [
-              { title: 'Hostname', data: 0 },
-              { title: 'MQ Version', data: 1 },
-              { title: 'MQ Install Type', data: 2 },
-              { title: 'Date/Time', data: 3 },
-              { title: 'Install Status', data: 4 },
-              { title: 'Conn Test Status', data: 5 }
-            ],
-            dom: 'Bfrtip',
-            buttons: [
-              { extend: 'csvHtml5', text: 'Export CSV' },
-              { extend: 'excelHtml5', text: 'Export Excel' }
-            ],
-            rowGroup: {
-              dataSrc: 2
-            },
-            pageLength: 10,
-            initComplete: setupColumnFilters
+    function renderTable(data) {
+      if ($.fn.dataTable.isDataTable('#csv-table')) {
+        $('#csv-table').DataTable().clear().destroy();
+      }
+
+      const table = $('#csv-table').DataTable({
+        data,
+        columns: [
+          { title: 'Hostname', data: 0 },
+          { title: 'MQ Version', data: 1 },
+          { title: 'MQ Install Type', data: 2 },
+          { title: 'Date', data: 3 },
+          { title: 'Time', data: 4 },
+          { title: 'Install Status', data: 5 },
+          { title: 'Conn Test Status', data: 6 }
+        ],
+        dom: 'Bfrtip',
+        buttons: [
+          { extend: 'csvHtml5', text: 'Export CSV' },
+          { extend: 'excelHtml5', text: 'Export Excel' }
+        ],
+        rowGroup: { dataSrc: 2 },
+        pageLength: 10,
+        initComplete() {
+          // Apply column filters from header inputs
+          this.api().columns().every((colIdx) => {
+            const input = $('thead tr:eq(1) th').eq(colIdx).find('input');
+            if (!input.length) return;
+            input.on('keyup change clear', () => {
+              if (table.column(colIdx).search() !== input.val()) {
+                table.column(colIdx).search(input.val()).draw();
+              }
+            });
           });
         }
       });
     }
 
-    function setupColumnFilters() {
-      this.api().columns().every(function () {
-        const colIdx = this.index();
-        const select = $('<select><option value="">All</option></select>')
-          .appendTo($(this.footer()).empty())
-          .on('change', function () {
-            const val = $.fn.dataTable.util.escapeRegex($(this).val());
-            this.api().column(colIdx).search(val ? '^' + val + '$' : '', true, false).draw();
-          }.bind(this));
-
-        this.data().unique().sort().each((d) => {
-          if (d) select.append(`<option value="${d}">${d}</option>`);
-        });
-      });
-    }
-
-    window.onload = loadTable;
+    $(document).ready(loadTable);
   </script>
 </body>
 </html>
