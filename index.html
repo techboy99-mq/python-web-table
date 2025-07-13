@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="css/rowGroup.dataTables.min.css" />
   <style>
     body { font-family: Arial, sans-serif; padding: 2rem; }
-    button { margin-right: 1rem; padding: 0.5rem 1rem; font-size: 1rem; }
+    button { margin-bottom: 1rem; padding: 0.5rem 1rem; font-size: 1rem; }
     #dateFilter { margin: 1rem 0; display: inline-block; }
     #csv-table { width: 100%; }
     thead input { width: 100%; box-sizing: border-box; }
@@ -35,15 +35,6 @@
         <th>Time</th>
         <th>Install Status</th>
         <th>Conn Test Status</th>
-      </tr>
-      <tr>
-        <th><input placeholder="Filter Hostname" /></th>
-        <th><input placeholder="Filter MQ Version" /></th>
-        <th><input placeholder="Filter Install Type" /></th>
-        <th></th>
-        <th></th>
-        <th><input placeholder="Filter Status" /></th>
-        <th><input placeholder="Filter Conn Status" /></th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -88,7 +79,14 @@
     function renderTable(data) {
       if ($.fn.dataTable.isDataTable('#csv-table')) {
         $('#csv-table').DataTable().clear().destroy();
+        $('#csv-table thead tr:eq(1)').remove(); // Remove old filters if reloading
       }
+
+      // Clone header row and append input filters
+      const header = $('#csv-table thead tr').clone().appendTo('#csv-table thead');
+      header.find('th').each(function () {
+        $(this).html('<input type="text" placeholder="Filter" style="width: 100%;">');
+      });
 
       const table = $('#csv-table').DataTable({
         data,
@@ -108,14 +106,13 @@
         ],
         rowGroup: { dataSrc: 2 },
         pageLength: 10,
+        orderCellsTop: true,
+        fixedHeader: true,
         initComplete() {
-          // Apply column filters from header inputs
-          this.api().columns().every((colIdx) => {
-            const input = $('thead tr:eq(1) th').eq(colIdx).find('input');
-            if (!input.length) return;
-            input.on('keyup change clear', () => {
-              if (table.column(colIdx).search() !== input.val()) {
-                table.column(colIdx).search(input.val()).draw();
+          this.api().columns().every(function (colIdx) {
+            $('thead tr:eq(1) th').eq(colIdx).find('input').on('keyup change clear', function () {
+              if (table.column(colIdx).search() !== this.value) {
+                table.column(colIdx).search(this.value).draw();
               }
             });
           });
