@@ -5,118 +5,182 @@
   <title>MQ Install Charts</title>
   <link rel="stylesheet" href="css/jquery.dataTables.min.css" />
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 2rem;
-    }
-    canvas {
-      max-width: 600px;
-      margin: 2rem auto;
-      display: block;
-    }
-    a {
-      display: inline-block;
-      margin-bottom: 2rem;
-      text-decoration: none;
-      color: #0077cc;
-    }
+    body { font-family: Arial, sans-serif; padding: 2rem; max-width: 900px; margin: auto; }
+    h2 { margin-bottom: 0.5rem; }
+    #filters { margin-bottom: 1.5rem; }
+    label { margin-right: 1rem; }
+    canvas { margin-bottom: 3rem; }
   </style>
 </head>
 <body>
-  <a href="index.html">← Back to Table</a>
-  <h2>MQ Install Summary Charts</h2>
+  <h2>MQ Install Status Charts</h2>
 
-  <canvas id="overallStatusChart"></canvas>
-  <canvas id="statusByTypeChart"></canvas>
+  <div id="filters">
+    <label>
+      Date from: <input type="date" id="startDate" />
+    </label>
+    <label>
+      Date to: <input type="date" id="endDate" />
+    </label>
+    <button id="applyFilter">Apply Filter</button>
+    <button onclick="location.href='index.html'">← Back to Table</button>
+  </div>
 
-  <script src="js/chart.4.4.1.umd.min.js"></script>
+  <canvas id="pieChart" width="400" height="300"></canvas>
+  <canvas id="barChart" width="700" height="300"></canvas>
+
+  <script src="js/jquery.min.js"></script>
   <script src="js/papaparse.min.js"></script>
+  <script src="js/chart.min.js"></script>
+
   <script>
-    function loadCSVData(callback) {
-      Papa.parse('data.csv?t=' + Date.now(), {
+    let rawData = [];
+
+    // Parse CSV and initialize charts
+    function loadData() {
+      Papa.parse('data.csv', {
         download: true,
         header: false,
         skipEmptyLines: true,
-        complete: results => {
-          callback(results.data);
+        complete: (results) => {
+          rawData = results.data;
+          updateCharts();
         }
       });
     }
 
-    function drawCharts(data) {
-      const statusCounts = { success: 0, failed: 0 };
-      const installTypeStatus = {
-        client: { success: 0, failed: 0 },
-        server: { success: 0, failed: 0 }
-      };
+    // Parse date from "YYYY-MM-DD" format in the CSV (column 3)
+    function parseDate(str) {
+      const parts = str.split('-');
+      if(parts.length !== 3) return null;
+      return new Date(str);
+    }
 
-      data.forEach(row => {
-        const type = row[2].toLowerCase();
-        const status = row[5].toLowerCase();
+    // Filter data by date range inputs
+    function filterByDate(data) {
+      const startDateVal = document.getElementById('startDate').value;
+      const endDateVal = document.getElementById('endDate').value;
 
-        if (status === "success" || status === "failed") {
-          statusCounts[status] += 1;
+      if(!startDateVal && !endDateVal) return data;
 
-          if (installTypeStatus[type]) {
-            installTypeStatus[type][status] += 1;
-          }
-        }
+      const start = startDateVal ? new Date(startDateVal) : null;
+      const end = endDateVal ? new Date(endDateVal) : null;
+
+      return data.filter(row => {
+        const dateStr = row[3];
+        if (!dateStr) return false;
+        const date = parseDate(dateStr);
+        if (!date) return false;
+        if (start && date < start) return false;
+        if (end && date > end) return false;
+        return true;
+      });
+    }
+
+    // Chart instances to update later
+    let pieChart, barChart;
+
+    function updateCharts() {
+      const filteredData = filterByDate(rawData);
+
+      // Count success/fail totals for pie chart
+      const successFailCount = { success: 0, failed: 0 };
+      filteredData.forEach(row => {
+        const status = (row[5] || '').toLowerCase();
+        if (status === 'success') successFailCount.success++;
+        else if (status === 'failed') successFailCount.failed++;
       });
 
-      // Chart 1: Overall Success/Failed
-      new Chart(document.getElementById('overallStatusChart'), {
+      // Prepare pie chart data
+      const pieLabels = ['Success', 'Failed'];
+      const pieData = [successFailCount.success, successFailCount.failed];
+      const pieTotal = pieData.reduce((a,b) => a+b, 0);
+
+      // Destroy existing pie chart if exists
+      if (pieChart) pieChart.destroy();
+
+      const pieCtx = document.getElementById('pieChart').getContext('2d');
+      pieChart = new Chart(pieCtx, {
         type: 'pie',
         data: {
-          labels: ['Success', 'Failed'],
+          labels: pieLabels.map((label, i) => 
+            `${label}: ${pieData[i]} (${((pieData[i]/pieTotal)*100).toFixed(1)}%)`),
           datasets: [{
-            data: [statusCounts.success, statusCounts.failed],
-            backgroundColor: ['#4caf50', '#f44336']
+            data: pieData,
+            backgroundColor: ['#4CAF50', '#F44336'],
           }]
         },
         options: {
           responsive: true,
           plugins: {
-            title: {
-              display: true,
-              text: 'Overall Install Status'
+            legend: { position: 'bottom' },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.label}`
+              }
             }
           }
         }
       });
 
-      // Chart 2: Success/Failed by Install Type
-      new Chart(document.getElementById('statusByTypeChart'), {
-        type: 'pie',
+      // Count success/fail by install type for bar chart
+      const installTypes = ['client', 'server'];
+      const barDataSuccess = [0, 0];
+      const barDataFailed = [0, 0];
+
+      filteredData.forEach(row => {
+        const type = (row[2] || '').toLowerCase();
+        const status = (row[5] || '').toLowerCase();
+        const idx = installTypes.indexOf(type);
+        if(idx >= 0) {
+          if(status === 'success') barDataSuccess[idx]++;
+          else if(status === 'failed') barDataFailed[idx]++;
+        }
+      });
+
+      // Destroy existing bar chart if exists
+      if(barChart) barChart.destroy();
+
+      const barCtx = document.getElementById('barChart').getContext('2d');
+      barChart = new Chart(barCtx, {
+        type: 'bar',
         data: {
-          labels: [
-            'Client Success', 'Client Failed',
-            'Server Success', 'Server Failed'
-          ],
-          datasets: [{
-            data: [
-              installTypeStatus.client.success,
-              installTypeStatus.client.failed,
-              installTypeStatus.server.success,
-              installTypeStatus.server.failed
-            ],
-            backgroundColor: ['#4caf50', '#f44336', '#2196f3', '#ff9800']
-          }]
+          labels: installTypes.map(s => s.charAt(0).toUpperCase() + s.slice(1)),
+          datasets: [
+            {
+              label: 'Success',
+              backgroundColor: '#4CAF50',
+              data: barDataSuccess
+            },
+            {
+              label: 'Failed',
+              backgroundColor: '#F44336',
+              data: barDataFailed
+            }
+          ]
         },
         options: {
           responsive: true,
-          plugins: {
-            title: {
-              display: true,
-              text: 'Install Status by Type (Client / Server)'
+          scales: {
+            y: {
+              beginAtZero: true,
+              stepSize: 1,
+              title: { display: true, text: 'Count' }
+            },
+            x: {
+              title: { display: true, text: 'MQ Install Type' }
             }
+          },
+          plugins: {
+            legend: { position: 'top' }
           }
         }
       });
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      loadCSVData(drawCharts);
-    });
+    document.getElementById('applyFilter').addEventListener('click', updateCharts);
+
+    window.onload = loadData;
   </script>
 </body>
 </html>
