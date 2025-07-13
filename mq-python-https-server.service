@@ -1,0 +1,15 @@
+[Unit]
+Description=Python HTTPS Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /<PATH TO APP>/https_server.py
+WorkingDirectory=/<PATH TO APP>
+Restart=always
+User=<USER>
+Group=<GROUP>
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
