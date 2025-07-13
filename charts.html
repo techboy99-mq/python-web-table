@@ -2,130 +2,157 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>MQ Install Charts</title>
+  <title>MQ Install Logs - Charts</title>
   <link rel="stylesheet" href="css/jquery.dataTables.min.css" />
   <style>
-    body { font-family: Arial, sans-serif; padding: 2rem; }
-    a.back-link { display: inline-block; margin-bottom: 1rem; font-size: 1.1rem; text-decoration: none; }
-    a.back-link:hover { text-decoration: underline; }
-    .chart-container { max-width: 600px; margin-bottom: 3rem; }
-    .filter-group { margin-bottom: 1rem; }
-    label { margin-right: 1rem; }
-    select, input[type="date"] { padding: 0.3rem 0.5rem; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 1rem 2rem;
+      max-width: 900px;
+      margin: auto;
+    }
+    h2 {
+      text-align: center;
+    }
+    #filters {
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+    label {
+      margin: 0 1rem;
+      font-weight: bold;
+    }
+    input[type="date"] {
+      padding: 0.25rem;
+      font-size: 1rem;
+    }
+    .chart-container {
+      max-width: 450px;
+      margin: 2rem auto;
+    }
   </style>
 </head>
 <body>
-  <a href="index.html" class="back-link">← Back to Table</a>
+  <h2>MQ Install Logs - Charts</h2>
 
-  <h2>MQ Install Success vs Failures</h2>
-  <div class="chart-container">
-    <canvas id="pieChart" width="400" height="400"></canvas>
-  </div>
-
-  <h2>Install Status by Type (Filtered)</h2>
-  
-  <div class="filter-group">
-    <label for="filterStartDate">Start Date:</label>
-    <input type="date" id="filterStartDate" />
-    <label for="filterEndDate">End Date:</label>
-    <input type="date" id="filterEndDate" />
-    
-    <label for="filterInstallStatus">Install Status:</label>
-    <select id="filterInstallStatus">
-      <option value="">All</option>
-      <option value="success">Success</option>
-      <option value="failed">Failed</option>
-    </select>
-
-    <label for="filterInstallType">Install Type:</label>
-    <select id="filterInstallType">
-      <option value="">All</option>
-      <option value="client">Client</option>
-      <option value="server">Server</option>
-    </select>
-
-    <button id="applyFilters">Apply Filters</button>
+  <div id="filters">
+    <label>
+      Date from: <input type="date" id="minDate" />
+    </label>
+    <label>
+      Date to: <input type="date" id="maxDate" />
+    </label>
   </div>
 
   <div class="chart-container">
-    <canvas id="barChart" width="600" height="400"></canvas>
+    <canvas id="pieChart"></canvas>
   </div>
 
+  <div class="chart-container">
+    <canvas id="barChart"></canvas>
+  </div>
+
+  <div style="text-align: center; margin-top: 2rem;">
+    <a href="index.html">⬅ Back to Table View</a>
+  </div>
+
+  <!-- JS dependencies -->
   <script src="js/jquery.min.js"></script>
+  <script src="js/papaparse.min.js"></script>
   <script src="js/chart.min.js"></script>
   <script src="js/chartjs-plugin-datalabels.min.js"></script>
-  <script src="js/papaparse.min.js"></script>
 
   <script>
-    let rawData = [];
+    const pieCtx = document.getElementById('pieChart').getContext('2d');
+    const barCtx = document.getElementById('barChart').getContext('2d');
+
     let pieChart, barChart;
+    let csvData = [];
 
-    // Load and parse CSV data
-    function loadData() {
-      Papa.parse('data.csv', {
-        download: true,
-        header: false,
-        skipEmptyLines: true,
-        complete: function(results) {
-          rawData = results.data;
-          drawPieChart();
-          drawBarChart();
+    // Parse date string "YYYY-MM-DD"
+    function parseDate(dateStr) {
+      if (!dateStr) return null;
+      const parts = dateStr.split('-');
+      if (parts.length !== 3) return null;
+      return new Date(dateStr);
+    }
+
+    // Filter data by date range (date in 4th col)
+    function filterDataByDate(data, minDate, maxDate) {
+      return data.filter(row => {
+        const dateVal = row[3]; // Date column YYYY-MM-DD
+        if (!dateVal) return false;
+        const d = parseDate(dateVal);
+        if (!d) return false;
+        if (minDate && d < minDate) return false;
+        if (maxDate && d > maxDate) return false;
+        return true;
+      });
+    }
+
+    function aggregateData(data) {
+      // Totals for pie chart: success/fail counts
+      let totalSuccess = 0, totalFail = 0;
+
+      // Bar chart counts: install_type => {success: x, fail: y}
+      const installTypeCounts = {};
+
+      data.forEach(row => {
+        const installStatus = row[5].toLowerCase();
+        const installType = row[2].toLowerCase();
+
+        if (installStatus === 'success') totalSuccess++;
+        else if (installStatus === 'failed') totalFail++;
+
+        if (!installTypeCounts[installType]) {
+          installTypeCounts[installType] = { success: 0, failed: 0 };
         }
-      });
-    }
 
-    // Utility: Parse date string 'YYYY-MM-DD' into Date object
-    function parseDate(str) {
-      if (!str) return null;
-      const parts = str.split('-');
-      return new Date(parts[0], parts[1] - 1, parts[2]);
-    }
-
-    // Draw Pie Chart: Success vs Fail count with count & %
-    function drawPieChart() {
-      const counts = { success: 0, failed: 0 };
-      rawData.forEach(row => {
-        const status = row[5].toLowerCase();
-        if (status === 'success' || status === 'failed') counts[status]++;
+        if (installStatus === 'success') installTypeCounts[installType].success++;
+        else if (installStatus === 'failed') installTypeCounts[installType].failed++;
       });
 
-      const total = counts.success + counts.failed;
-      const data = [counts.success, counts.failed];
+      return { totalSuccess, totalFail, installTypeCounts };
+    }
 
-      const ctx = document.getElementById('pieChart').getContext('2d');
+    function createPieChart(successCount, failCount) {
       if (pieChart) pieChart.destroy();
 
-      pieChart = new Chart(ctx, {
+      const total = successCount + failCount;
+      const successPct = total ? ((successCount / total) * 100).toFixed(1) : 0;
+      const failPct = total ? ((failCount / total) * 100).toFixed(1) : 0;
+
+      pieChart = new Chart(pieCtx, {
         type: 'pie',
         data: {
-          labels: ['Success', 'Failed'],
+          labels: [
+            `Success: ${successCount} (${successPct}%)`,
+            `Failed: ${failCount} (${failPct}%)`
+          ],
           datasets: [{
-            data,
-            backgroundColor: ['#4caf50', '#f44336'],
+            data: [successCount, failCount],
+            backgroundColor: ['#4caf50', '#f44336']
           }]
         },
         options: {
+          responsive: true,
           plugins: {
             datalabels: {
-              formatter: (value, ctx) => {
-                const label = ctx.chart.data.labels[ctx.dataIndex];
-                const percent = (value / total * 100).toFixed(1);
-                return `${label}\n${value} (${percent}%)`;
-              },
               color: '#fff',
+              formatter: (value, ctx) => {
+                let label = ctx.chart.data.labels[ctx.dataIndex];
+                return label;
+              },
               font: { weight: 'bold', size: 14 }
             },
             legend: {
-              position: 'bottom'
+              position: 'bottom',
+              labels: { font: { size: 14 } }
             },
-            tooltip: {
-              callbacks: {
-                label: ctx => {
-                  const val = ctx.raw;
-                  const pct = (val / total * 100).toFixed(2);
-                  return `${ctx.label}: ${val} (${pct}%)`;
-                }
-              }
+            title: {
+              display: true,
+              text: 'Total Install Status',
+              font: { size: 18, weight: 'bold' }
             }
           }
         },
@@ -133,85 +160,86 @@
       });
     }
 
-    // Draw Bar Chart: Install Status by Install Type with filters
-    function drawBarChart() {
-      const startDate = parseDate(document.getElementById('filterStartDate').value);
-      const endDate = parseDate(document.getElementById('filterEndDate').value);
-      const installStatusFilter = document.getElementById('filterInstallStatus').value.toLowerCase();
-      const installTypeFilter = document.getElementById('filterInstallType').value.toLowerCase();
-
-      // Count structure: {client: {success: x, failed: y}, server: {...}}
-      const counts = { client: { success: 0, failed: 0 }, server: { success: 0, failed: 0 } };
-
-      rawData.forEach(row => {
-        const dateStr = row[3];
-        const dateObj = parseDate(dateStr);
-        if (!dateObj) return; // skip invalid date
-
-        // Date range filter
-        if (startDate && dateObj < startDate) return;
-        if (endDate && dateObj > endDate) return;
-
-        const status = row[5].toLowerCase();
-        const type = row[2].toLowerCase();
-
-        // Install status filter
-        if (installStatusFilter && status !== installStatusFilter) return;
-
-        // Install type filter
-        if (installTypeFilter && type !== installTypeFilter) return;
-
-        if (counts[type] && counts[type][status] !== undefined) {
-          counts[type][status]++;
-        }
-      });
-
-      const ctx = document.getElementById('barChart').getContext('2d');
+    function createBarChart(installTypeCounts) {
       if (barChart) barChart.destroy();
 
-      barChart = new Chart(ctx, {
+      const labels = Object.keys(installTypeCounts);
+      const successData = labels.map(k => installTypeCounts[k].success);
+      const failData = labels.map(k => installTypeCounts[k].failed);
+
+      barChart = new Chart(barCtx, {
         type: 'bar',
         data: {
-          labels: ['Client', 'Server'],
+          labels,
           datasets: [
             {
               label: 'Success',
               backgroundColor: '#4caf50',
-              data: [counts.client.success, counts.server.success]
+              data: successData
             },
             {
               label: 'Failed',
               backgroundColor: '#f44336',
-              data: [counts.client.failed, counts.server.failed]
+              data: failData
             }
           ]
         },
         options: {
           responsive: true,
-          plugins: {
-            legend: { position: 'top' },
-            tooltip: { mode: 'index', intersect: false }
-          },
           scales: {
             y: {
               beginAtZero: true,
               precision: 0,
-              title: { display: true, text: 'Count' }
-            },
-            x: {
-              title: { display: true, text: 'Install Type' }
+              ticks: { stepSize: 1 }
+            }
+          },
+          plugins: {
+            legend: { position: 'bottom' },
+            title: {
+              display: true,
+              text: 'Install Status by Install Type',
+              font: { size: 18, weight: 'bold' }
             }
           }
         }
       });
     }
 
-    document.getElementById('applyFilters').addEventListener('click', () => {
-      drawBarChart();
-    });
+    function refreshCharts() {
+      const minDateStr = document.getElementById('minDate').value;
+      const maxDateStr = document.getElementById('maxDate').value;
+      const minDate = minDateStr ? new Date(minDateStr) : null;
+      const maxDate = maxDateStr ? new Date(maxDateStr) : null;
 
-    // Load data on page load
-    window.onload = loadData;
+      const filtered = filterDataByDate(csvData, minDate, maxDate);
+      const { totalSuccess, totalFail, installTypeCounts } = aggregateData(filtered);
+
+      createPieChart(totalSuccess, totalFail);
+      createBarChart(installTypeCounts);
+    }
+
+    function loadCsvData() {
+      Papa.parse('data.csv', {
+        download: true,
+        header: false,
+        skipEmptyLines: true,
+        complete: function(results) {
+          csvData = results.data;
+          refreshCharts();
+        },
+        error: function(err) {
+          alert('Failed to load CSV: ' + err);
+        }
+      });
+    }
+
+    // Date filter change triggers chart refresh
+    document.getElementById('minDate').addEventListener('change', refreshCharts);
+    document.getElementById('maxDate').addEventListener('change', refreshCharts);
+
+    // Initial load
+    loadCsvData();
+
   </script>
 </body>
 </html>
